@@ -1593,6 +1593,7 @@ pub enum LoadGenerator {
     Auction,
     Datums,
     Tpch,
+    Nexmark,
     KeyValue,
 }
 
@@ -1605,6 +1606,7 @@ impl AstDisplay for LoadGenerator {
             Self::Auction => f.write_str("AUCTION"),
             Self::Datums => f.write_str("DATUMS"),
             Self::Tpch => f.write_str("TPCH"),
+            Self::Nexmark => f.write_str("NEXMARK"),
             Self::KeyValue => f.write_str("KEY VALUE"),
         }
     }
@@ -1624,6 +1626,7 @@ impl LoadGenerator {
             LoadGenerator::Auction => "auction",
             LoadGenerator::Datums => "datums",
             LoadGenerator::Tpch => "tpch",
+            LoadGenerator::Nexmark => "nexmark",
             LoadGenerator::KeyValue => "key_value",
         }
     }
@@ -1643,6 +1646,7 @@ pub enum LoadGeneratorOptionName {
     Seed,
     Partitions,
     BatchSize,
+    MaxEvents,
 }
 
 impl AstDisplay for LoadGeneratorOptionName {
@@ -1660,6 +1664,7 @@ impl AstDisplay for LoadGeneratorOptionName {
             LoadGeneratorOptionName::Seed => "SEED",
             LoadGeneratorOptionName::Partitions => "PARTITIONS",
             LoadGeneratorOptionName::BatchSize => "BATCH SIZE",
+            LoadGeneratorOptionName::MaxEvents => "MAX EVENTS",
         })
     }
 }
@@ -1684,6 +1689,7 @@ impl WithOptionName for LoadGeneratorOptionName {
             | LoadGeneratorOptionName::ValueSize
             | LoadGeneratorOptionName::Partitions
             | LoadGeneratorOptionName::BatchSize
+            | LoadGeneratorOptionName::MaxEvents
             | LoadGeneratorOptionName::Seed => false,
         }
     }

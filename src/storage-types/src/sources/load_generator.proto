@@ -27,6 +27,7 @@ message ProtoLoadGeneratorOutput {
     ProtoLoadGeneratorAuctionOutput auction = 2;
     ProtoLoadGeneratorMarketingOutput marketing = 3;
     ProtoLoadGeneratorTpchOutput tpch = 4;
+    ProtoLoadGeneratorNexmarkOutput nexmark = 5;
   }
 }
 
@@ -56,4 +57,10 @@ enum ProtoLoadGeneratorTpchOutput {
   Lineitem = 5;
   Nation = 6;
   Region = 7;
+}
+
+enum ProtoLoadGeneratorNexmarkOutput {
+  Person = 0;
+  Auction = 1;
+  Bid = 2;
 }

@@ -106,6 +106,7 @@ use mz_storage_types::sources::kafka::{
 use mz_storage_types::sources::load_generator::{
     KeyValueLoadGenerator, LOAD_GENERATOR_KEY_VALUE_OFFSET_DEFAULT, LoadGenerator,
     LoadGeneratorOutput, LoadGeneratorSourceConnection, LoadGeneratorSourceExportDetails,
+    NexmarkLoadGenerator,
 };
 use mz_storage_types::sources::mysql::{
     MySqlSourceConnection, MySqlSourceDetails, ProtoMySqlSourceDetails,
@@ -932,7 +933,8 @@ pub fn plan_create_source(
                 GenericSourceConnection::LoadGenerator(ref c) => match c.load_generator {
                     LoadGenerator::Auction
                     | LoadGenerator::Marketing
-                    | LoadGenerator::Tpch { .. } => SourceExportDetails::None,
+                    | LoadGenerator::Tpch { .. }
+                    | LoadGenerator::Nexmark(_) => SourceExportDetails::None,
                     LoadGenerator::Counter { .. }
                     | LoadGenerator::Clock
                     | LoadGenerator::Datums
@@ -2048,7 +2050,8 @@ generate_extracted_config!(
     (ValueSize, u64),
     (Seed, u64),
     (Partitions, u64),
-    (BatchSize, u64)
+    (BatchSize, u64),
+    (MaxEvents, u64)
 );
 
 impl LoadGeneratorOptionExtracted {
@@ -2067,6 +2070,7 @@ impl LoadGeneratorOptionExtracted {
             ast::LoadGenerator::Marketing => &[TickInterval, AsOf, UpTo],
             ast::LoadGenerator::Datums => &[TickInterval, AsOf, UpTo],
             ast::LoadGenerator::Tpch => &[TickInterval, AsOf, UpTo, ScaleFactor],
+            ast::LoadGenerator::Nexmark => &[TickInterval, AsOf, UpTo, BatchSize, MaxEvents],
             ast::LoadGenerator::KeyValue => &[
                 TickInterval,
                 Keys,
@@ -2160,6 +2164,35 @@ pub(crate) fn load_generator_ast_to_generator(
                 count_orders,
                 count_clerk,
             }
+        }
+        ast::LoadGenerator::Nexmark => {
+            let LoadGeneratorOptionExtracted {
+                tick_interval,
+                batch_size,
+                max_events,
+                ..
+            } = extracted;
+
+            // The generator sleeps for one tick between batches, and the tick
+            // timer panics on a zero period. Ticks have microsecond resolution.
+            if tick_interval.is_some_and(|tick| tick.as_micros() == 0) {
+                sql_bail!("LOAD GENERATOR NEXMARK requires a TICK INTERVAL of at least 1us");
+            }
+            let batch_size = batch_size.unwrap_or(1_000);
+            if batch_size == 0 {
+                sql_bail!("LOAD GENERATOR NEXMARK requires a non-zero BATCH SIZE");
+            }
+            // Same default as the Nexmark reference generator, where 0 means
+            // unbounded.
+            let max_events = match max_events.unwrap_or(100_000_000) {
+                0 => None,
+                n => Some(n),
+            };
+
+            LoadGenerator::Nexmark(NexmarkLoadGenerator {
+                batch_size,
+                max_events,
+            })
         }
         mz_sql_parser::ast::LoadGenerator::KeyValue => {
             scx.require_feature_flag(&vars::ENABLE_LOAD_GENERATOR_KEY_VALUE)?;

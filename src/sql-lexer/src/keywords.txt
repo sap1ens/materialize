@@ -175,6 +175,7 @@ Error
 Errors
 Escape
 Estimate
+Events
 Every
 Except
 Exclude
@@ -316,6 +317,7 @@ Natural
 Negative
 Network
 New
+Nexmark
 Next
 Nfc
 Nfd

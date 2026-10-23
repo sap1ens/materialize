@@ -16,6 +16,7 @@
         [, SEED <seed>]
         [, PARTITIONS <partitions>]
         [, BATCH SIZE <batch_size>]
+        [, MAX EVENTS <max_events>]
       )
     ]
     [EXPOSE PROGRESS AS <progress_subsource_name>]
@@ -42,6 +43,7 @@
         | `AUCTION` | Use the [auction](#auction) load generator. |
         | `MARKETING` | Use the [marketing](#marketing) load generator. |
         | `TPCH` | Use the [tpch](#tpch) load generator. |
+        | `NEXMARK` | Use the [nexmark](#nexmark) load generator. |
         | `KEY VALUE` | Use the key-value load generator. |
     - name: "**TICK INTERVAL** `<tick_interval>`"
       description: |
@@ -78,7 +80,10 @@
         Optional. The number of partitions for the generator.
     - name: "**BATCH SIZE** `<batch_size>`"
       description: |
-        Optional. The batch size for the generator.
+        Optional. The batch size for the generator. For `NEXMARK`, the number of events emitted per tick. Defaults to `1000` for `NEXMARK`.
+    - name: "**MAX EVENTS** `<max_events>`"
+      description: |
+        Optional. The number of events the `NEXMARK` generator emits before it stops. `0` means no limit. Defaults to `100000000`.
     - name: "**EXPOSE PROGRESS AS** `<progress_subsource_name>`"
       description: |
         Optional. The name of the progress subsource for the source. If this is not specified, the subsource will be named `<src_name>_progress`. For more information, see [Monitoring source progress](#monitoring-source-progress).
@@ -95,4 +100,4 @@
         The name of the table to create for a relation exposed by the source. Use [`CREATE TABLE ... FROM SOURCE`](/sql/create-table/) to ingest a relation. You can create multiple tables from the same source relation.
     - name: "**(REFERENCE `<reference>`)**"
       description: |
-        The relation of the load generator source to ingest into the table (e.g. `bids`, `customer`). Required for multi-output generators (`AUCTION`, `MARKETING`, `TPCH`). Optional for the single-output `KEY VALUE` generator.
+        The relation of the load generator source to ingest into the table (e.g. `bids`, `customer`). Required for multi-output generators (`AUCTION`, `MARKETING`, `TPCH`, `NEXMARK`). Optional for the single-output `KEY VALUE` generator.

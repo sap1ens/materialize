@@ -148,6 +148,66 @@ ingest using [`CREATE TABLE ... FROM SOURCE`](/sql/create-table/).
 If `TICK INTERVAL` is specified, after the initial data load, an order and its lineitems will be changed at this interval.
 If not specified, the dataset will not change over time.
 
+### Nexmark
+
+The Nexmark load generator produces the event streams of the [Nexmark
+benchmark](https://github.com/nexmark/nexmark), which models an online auction
+system. It generates the same events as the Nexmark generator in
+[Feldera](https://github.com/feldera/feldera), using Nexmark's default
+generator settings: out of every 50 events, 1 is a new person, 3 are new
+auctions, and 46 are bids. Event `n` has event time `n * 10ms` after the Unix
+epoch, and the data is the same every time it is generated.
+
+Each tick emits `BATCH SIZE` events (default `1000`), and the source stops after
+`MAX EVENTS` events (default `100000000`, `0` for no limit). To generate data
+as fast as possible, use a short `TICK INTERVAL`, such as `'1ms'`.
+
+The Nexmark source exposes the following relations, which you can ingest using
+[`CREATE TABLE ... FROM SOURCE`](/sql/create-table/):
+
+  * `person` describes the people who sell and bid on items.
+
+    Field           | Type             | Description
+    ----------------|------------------|------------
+    `id`            | [`bigint`]       | A unique identifier for the person.
+    `name`          | [`text`]         | The person's name.
+    `email_address` | [`text`]         | The person's email address.
+    `credit_card`   | [`text`]         | The person's credit card number.
+    `city`          | [`text`]         | The person's city.
+    `state`         | [`text`]         | The person's state.
+    `date_time`     | [`timestamp`]    | The event time at which the person registered.
+    `extra`         | [`text`]         | Padding that brings the average event size to 200 bytes.
+
+  * `auction` describes the items for sale.
+
+    Field         | Type          | Description
+    --------------|---------------|------------
+    `id`          | [`bigint`]    | A unique identifier for the auction.
+    `item_name`   | [`text`]      | The item's name.
+    `description` | [`text`]      | The item's description.
+    `initial_bid` | [`bigint`]    | The starting price, in cents.
+    `reserve`     | [`bigint`]    | The minimum price for the item to sell, in cents.
+    `date_time`   | [`timestamp`] | The event time at which the auction opened.
+    `expires`     | [`timestamp`] | The event time at which the auction closes.
+    `seller`      | [`bigint`]    | The person selling the item. References `person.id`.
+    `category`    | [`bigint`]    | The item's category.
+    `extra`       | [`text`]      | Padding that brings the average event size to 500 bytes.
+
+  * `bid` describes the bids on auctions.
+
+    Field       | Type          | Description
+    ------------|---------------|------------
+    `auction`   | [`bigint`]    | The auction bid on. References `auction.id`.
+    `bidder`    | [`bigint`]    | The person bidding. References `person.id`.
+    `price`     | [`bigint`]    | The bid, in cents.
+    `channel`   | [`text`]      | The channel through which the bid was placed.
+    `url`       | [`text`]      | The URL of the channel.
+    `date_time` | [`timestamp`] | The event time at which the bid was placed.
+    `extra`     | [`text`]      | Padding that brings the average event size to 100 bytes.
+
+As in Nexmark, a bid or auction can reference a person who is generated a few
+events later.
+
 ### Monitoring source progress
 
 By default, load generator sources expose progress metadata as a subsource that
@@ -183,7 +243,7 @@ above that you want to ingest. For example, assuming a TPCH source named
 CREATE TABLE orders FROM SOURCE tpch (REFERENCE orders);
 ```
 
-For **multi-output generators** (`AUCTION`, `MARKETING`, `TPCH`), the
+For **multi-output generators** (`AUCTION`, `MARKETING`, `TPCH`, `NEXMARK`), the
 `REFERENCE` clause is required: specify one of the table names listed above
 (e.g. `bids`, `customers`, `lineitem`). Omitting `REFERENCE` results in an
 error, since Materialize cannot determine which table you're referring to.
@@ -466,6 +526,28 @@ Unlike the [previous example](#creating-a-tpch-load-generator), only the
 `orders` and `lineitem` tables are created; the other TPCH relations are not
 ingested unless you also create tables for them.
 
+### Creating a Nexmark load generator
+
+To create a load generator source that emits 10,000 Nexmark events every 100
+milliseconds, then create tables for its relations and run Nexmark query 1,
+which converts bid prices to euros:
+
+```mzsql
+CREATE SOURCE nexmark
+  FROM LOAD GENERATOR NEXMARK
+  (TICK INTERVAL '100ms', BATCH SIZE 10000, MAX EVENTS 0);
+
+BEGIN;
+CREATE TABLE person FROM SOURCE nexmark (REFERENCE person);
+CREATE TABLE auction FROM SOURCE nexmark (REFERENCE auction);
+CREATE TABLE bid FROM SOURCE nexmark (REFERENCE bid);
+COMMIT;
+
+CREATE MATERIALIZED VIEW q1 AS
+  SELECT auction, bidder, 0.908 * price AS price, date_time, extra
+  FROM bid;
+```
+
 ## Related pages
 
 - [`CREATE SOURCE`](../)
@@ -476,5 +558,6 @@ ingested unless you also create tables for them.
 [`bytea`]: /sql/types/bytea
 [`interval`]: /sql/types/interval
 [`uint8`]: /sql/types/uint/#uint8-info
+[`timestamp`]: /sql/types/timestamp
 [`timestamp with time zone`]: /sql/types/timestamp
 [feature request]: https://github.com/MaterializeInc/materialize/discussions/new?category=feature-requests

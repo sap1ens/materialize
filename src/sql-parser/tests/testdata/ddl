@@ -3197,6 +3197,13 @@ CREATE SOURCE lg FROM LOAD GENERATOR TPCH
 CreateSource(CreateSourceStatement { name: UnresolvedItemName([Ident("lg")]), in_cluster: None, col_names: [], connection: LoadGenerator { generator: Tpch, options: [] }, include_metadata: [], format: None, envelope: None, if_not_exists: false, key_constraint: None, with_options: [], external_references: None, progress_subsource: None })
 
 parse-statement
+CREATE SOURCE lg FROM LOAD GENERATOR NEXMARK (TICK INTERVAL '100ms', BATCH SIZE 1000, MAX EVENTS 1000000)
+----
+CREATE SOURCE lg FROM LOAD GENERATOR NEXMARK (TICK INTERVAL = '100ms', BATCH SIZE = 1000, MAX EVENTS = 1000000)
+=>
+CreateSource(CreateSourceStatement { name: UnresolvedItemName([Ident("lg")]), in_cluster: None, col_names: [], connection: LoadGenerator { generator: Nexmark, options: [LoadGeneratorOption { name: TickInterval, value: Some(Value(String("100ms"))) }, LoadGeneratorOption { name: BatchSize, value: Some(Value(Number("1000"))) }, LoadGeneratorOption { name: MaxEvents, value: Some(Value(Number("1000000"))) }] }, include_metadata: [], format: None, envelope: None, if_not_exists: false, key_constraint: None, with_options: [], external_references: None, progress_subsource: None })
+
+parse-statement
 CREATE SOURCE psychic FROM POSTGRES CONNECTION pgconn (PUBLICATION 'red') WITH (TIMESTAMP INTERVAL 'interval')
 ----
 CREATE SOURCE psychic FROM POSTGRES CONNECTION pgconn (PUBLICATION = 'red') WITH (TIMESTAMP INTERVAL = 'interval')

@@ -1261,7 +1261,8 @@ impl Source {
                         | LoadGenerator::KeyValue(_) => 1,
                         LoadGenerator::Auction
                         | LoadGenerator::Marketing
-                        | LoadGenerator::Tpch { .. } => 0,
+                        | LoadGenerator::Tpch { .. }
+                        | LoadGenerator::Nexmark(_) => 0,
                     },
                     GenericSourceConnection::Kafka(_) => 1,
                 }

@@ -15,6 +15,7 @@ use std::time::Duration;
 use mz_ore::now::NowFn;
 use mz_proto::{ProtoType, RustType, TryFromProtoError};
 use mz_repr::adt::numeric::NumericMaxScale;
+use mz_repr::adt::timestamp::TimestampPrecision;
 use mz_repr::{CatalogItemId, Diff, GlobalId, RelationDesc, Row, SqlScalarType};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -110,6 +111,7 @@ impl SourceConnection for LoadGeneratorSourceConnection {
                 .finish(),
             LoadGenerator::Marketing => RelationDesc::empty(),
             LoadGenerator::Tpch { .. } => RelationDesc::empty(),
+            LoadGenerator::Nexmark(_) => RelationDesc::empty(),
             LoadGenerator::KeyValue(KeyValueLoadGenerator { include_offset, .. }) => {
                 let mut desc = RelationDesc::builder()
                     .with_column("partition", SqlScalarType::UInt64.nullable(false))
@@ -161,6 +163,7 @@ pub enum LoadGenerator {
         count_orders: i64,
         count_clerk: i64,
     },
+    Nexmark(NexmarkLoadGenerator),
     KeyValue(KeyValueLoadGenerator),
 }
 
@@ -177,6 +180,7 @@ impl LoadGenerator {
             LoadGenerator::Auction => "auction",
             LoadGenerator::Datums => "datums",
             LoadGenerator::Tpch { .. } => "tpch",
+            LoadGenerator::Nexmark(_) => "nexmark",
             LoadGenerator::KeyValue { .. } => "key_value",
         }
     }
@@ -457,6 +461,62 @@ impl LoadGenerator {
                     ),
                 ]
             }
+            LoadGenerator::Nexmark(_) => {
+                let id = SqlScalarType::Int64.nullable(false);
+                let text = SqlScalarType::String.nullable(false);
+                // Nexmark declares its event times as `TIMESTAMP(3)`.
+                let timestamp = SqlScalarType::Timestamp {
+                    precision: Some(TimestampPrecision::try_from(3i64).expect("valid precision")),
+                }
+                .nullable(false);
+                vec![
+                    (
+                        "person",
+                        RelationDesc::builder()
+                            .with_column("id", id.clone())
+                            .with_column("name", text.clone())
+                            .with_column("email_address", text.clone())
+                            .with_column("credit_card", text.clone())
+                            .with_column("city", text.clone())
+                            .with_column("state", text.clone())
+                            .with_column("date_time", timestamp.clone())
+                            .with_column("extra", text.clone())
+                            .with_key(vec![0])
+                            .finish(),
+                        LoadGeneratorOutput::Nexmark(NexmarkView::Person),
+                    ),
+                    (
+                        "auction",
+                        RelationDesc::builder()
+                            .with_column("id", id.clone())
+                            .with_column("item_name", text.clone())
+                            .with_column("description", text.clone())
+                            .with_column("initial_bid", id.clone())
+                            .with_column("reserve", id.clone())
+                            .with_column("date_time", timestamp.clone())
+                            .with_column("expires", timestamp.clone())
+                            .with_column("seller", id.clone())
+                            .with_column("category", id.clone())
+                            .with_column("extra", text.clone())
+                            .with_key(vec![0])
+                            .finish(),
+                        LoadGeneratorOutput::Nexmark(NexmarkView::Auction),
+                    ),
+                    (
+                        "bid",
+                        RelationDesc::builder()
+                            .with_column("auction", id.clone())
+                            .with_column("bidder", id.clone())
+                            .with_column("price", id)
+                            .with_column("channel", text.clone())
+                            .with_column("url", text.clone())
+                            .with_column("date_time", timestamp)
+                            .with_column("extra", text)
+                            .finish(),
+                        LoadGeneratorOutput::Nexmark(NexmarkView::Bid),
+                    ),
+                ]
+            }
             LoadGenerator::KeyValue(_) => vec![],
         }
     }
@@ -472,6 +532,7 @@ impl LoadGenerator {
             LoadGenerator::Marketing => false,
             LoadGenerator::Datums => true,
             LoadGenerator::Tpch { .. } => false,
+            LoadGenerator::Nexmark(_) => true,
             LoadGenerator::KeyValue(_) => true,
         }
     }
@@ -497,6 +558,7 @@ pub enum LoadGeneratorOutput {
     Auction(AuctionView),
     Marketing(MarketingView),
     Tpch(TpchView),
+    Nexmark(NexmarkView),
 }
 
 #[derive(
@@ -558,6 +620,23 @@ pub enum TpchView {
     Lineitem,
     Nation,
     Region,
+}
+
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    PartialOrd,
+    Ord
+)]
+pub enum NexmarkView {
+    Person,
+    Auction,
+    Bid,
 }
 
 // TODO(roshan): Remove these str mappings once the migration
@@ -684,6 +763,24 @@ impl RustType<ProtoLoadGeneratorTpchOutput> for TpchView {
     }
 }
 
+impl RustType<ProtoLoadGeneratorNexmarkOutput> for NexmarkView {
+    fn into_proto(&self) -> ProtoLoadGeneratorNexmarkOutput {
+        match self {
+            NexmarkView::Person => ProtoLoadGeneratorNexmarkOutput::Person,
+            NexmarkView::Auction => ProtoLoadGeneratorNexmarkOutput::Auction,
+            NexmarkView::Bid => ProtoLoadGeneratorNexmarkOutput::Bid,
+        }
+    }
+
+    fn from_proto(proto: ProtoLoadGeneratorNexmarkOutput) -> Result<Self, TryFromProtoError> {
+        Ok(match proto {
+            ProtoLoadGeneratorNexmarkOutput::Person => NexmarkView::Person,
+            ProtoLoadGeneratorNexmarkOutput::Auction => NexmarkView::Auction,
+            ProtoLoadGeneratorNexmarkOutput::Bid => NexmarkView::Bid,
+        })
+    }
+}
+
 impl RustType<ProtoLoadGeneratorOutput> for LoadGeneratorOutput {
     fn into_proto(&self) -> ProtoLoadGeneratorOutput {
         use proto_load_generator_output::Kind;
@@ -692,6 +789,7 @@ impl RustType<ProtoLoadGeneratorOutput> for LoadGeneratorOutput {
             LoadGeneratorOutput::Auction(view) => Kind::Auction(view.into_proto().into()),
             LoadGeneratorOutput::Marketing(view) => Kind::Marketing(view.into_proto().into()),
             LoadGeneratorOutput::Tpch(view) => Kind::Tpch(view.into_proto().into()),
+            LoadGeneratorOutput::Nexmark(view) => Kind::Nexmark(view.into_proto().into()),
         };
         ProtoLoadGeneratorOutput { kind: Some(kind) }
     }
@@ -718,6 +816,13 @@ impl RustType<ProtoLoadGeneratorOutput> for LoadGeneratorOutput {
                 ProtoLoadGeneratorTpchOutput::try_from(view)
                     .map_err(|_| {
                         TryFromProtoError::unknown_enum_variant("ProtoLoadGeneratorTpchOutput")
+                    })?
+                    .into_rust()?,
+            ),
+            Some(Kind::Nexmark(view)) => LoadGeneratorOutput::Nexmark(
+                ProtoLoadGeneratorNexmarkOutput::try_from(view)
+                    .map_err(|_| {
+                        TryFromProtoError::unknown_enum_variant("ProtoLoadGeneratorNexmarkOutput")
                     })?
                     .into_rust()?,
             ),
@@ -806,4 +911,17 @@ impl KeyValueLoadGenerator {
             self.snapshot_rounds
         }
     }
+}
+
+/// Generates the Nexmark benchmark's `person`, `auction`, and `bid` streams.
+///
+/// Event `i` is a pure function of `i`, so any batch can be regenerated
+/// without replaying the ones before it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct NexmarkLoadGenerator {
+    /// The number of events emitted at each offset, i.e. per tick.
+    pub batch_size: u64,
+    /// The total number of events to emit before the source completes, or
+    /// `None` to emit events forever.
+    pub max_events: Option<u64>,
 }

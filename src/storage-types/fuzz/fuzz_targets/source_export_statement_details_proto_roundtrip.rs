@@ -87,9 +87,11 @@ fn assert_roundtrip(orig: SourceExportStatementDetails) {
 }
 
 fn load_generator_output(selector: u8) -> LoadGeneratorOutput {
-    use mz_storage_types::sources::load_generator::{AuctionView, MarketingView, TpchView};
+    use mz_storage_types::sources::load_generator::{
+        AuctionView, MarketingView, NexmarkView, TpchView,
+    };
 
-    match selector % 20 {
+    match selector % 23 {
         0 => LoadGeneratorOutput::Default,
         1 => LoadGeneratorOutput::Auction(AuctionView::Organizations),
         2 => LoadGeneratorOutput::Auction(AuctionView::Users),
@@ -109,7 +111,10 @@ fn load_generator_output(selector: u8) -> LoadGeneratorOutput {
         16 => LoadGeneratorOutput::Tpch(TpchView::Orders),
         17 => LoadGeneratorOutput::Tpch(TpchView::Lineitem),
         18 => LoadGeneratorOutput::Tpch(TpchView::Nation),
-        _ => LoadGeneratorOutput::Tpch(TpchView::Region),
+        19 => LoadGeneratorOutput::Tpch(TpchView::Region),
+        20 => LoadGeneratorOutput::Nexmark(NexmarkView::Person),
+        21 => LoadGeneratorOutput::Nexmark(NexmarkView::Auction),
+        _ => LoadGeneratorOutput::Nexmark(NexmarkView::Bid),
     }
 }
 

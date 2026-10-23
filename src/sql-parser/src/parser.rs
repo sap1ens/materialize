@@ -3829,12 +3829,13 @@ impl<'a> Parser<'a> {
             LOAD => {
                 self.expect_keyword(GENERATOR)?;
                 let generator = match self.expect_one_of_keywords(&[
-                    CLOCK, COUNTER, MARKETING, AUCTION, TPCH, DATUMS, KEY,
+                    CLOCK, COUNTER, MARKETING, AUCTION, TPCH, NEXMARK, DATUMS, KEY,
                 ])? {
                     CLOCK => LoadGenerator::Clock,
                     COUNTER => LoadGenerator::Counter,
                     AUCTION => LoadGenerator::Auction,
                     TPCH => LoadGenerator::Tpch,
+                    NEXMARK => LoadGenerator::Nexmark,
                     DATUMS => LoadGenerator::Datums,
                     MARKETING => LoadGenerator::Marketing,
                     KEY => {
@@ -4049,10 +4050,11 @@ impl<'a> Parser<'a> {
                 self.expect_keyword(INTERVAL)?;
                 LoadGeneratorOptionName::TickInterval
             }
-            MAX => {
-                self.expect_keyword(CARDINALITY)?;
-                LoadGeneratorOptionName::MaxCardinality
-            }
+            MAX => match self.expect_one_of_keywords(&[CARDINALITY, EVENTS])? {
+                CARDINALITY => LoadGeneratorOptionName::MaxCardinality,
+                EVENTS => LoadGeneratorOptionName::MaxEvents,
+                _ => unreachable!(),
+            },
             KEYS => LoadGeneratorOptionName::Keys,
             SNAPSHOT => {
                 self.expect_keyword(ROUNDS)?;

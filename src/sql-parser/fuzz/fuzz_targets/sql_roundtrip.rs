@@ -1645,6 +1645,7 @@ impl<'a, 'u> Gen<'a, 'u> {
                     "AUCTION",
                     "MARKETING",
                     "TPCH",
+                    "NEXMARK",
                     "KEY VALUE",
                 ]);
                 self.config_option_list(option_names("LoadGeneratorOptionName"), false);

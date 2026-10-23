@@ -447,7 +447,10 @@ fn rewrite_sources_to_tables(
                 | CreateSourceConnection::SqlServer { .. }
                 | CreateSourceConnection::LoadGenerator {
                     generator:
-                        LoadGenerator::Tpch | LoadGenerator::Auction | LoadGenerator::Marketing,
+                        LoadGenerator::Tpch
+                        | LoadGenerator::Nexmark
+                        | LoadGenerator::Auction
+                        | LoadGenerator::Marketing,
                     ..
                 }) => {
                     // Assert the expected state of the source

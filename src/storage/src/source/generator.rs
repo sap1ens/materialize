@@ -49,12 +49,14 @@ mod counter;
 mod datums;
 mod key_value;
 mod marketing;
+mod nexmark;
 mod tpch;
 
 pub use auction::Auction;
 pub use clock::Clock;
 pub use counter::Counter;
 pub use datums::Datums;
+pub use nexmark::Nexmark;
 pub use tpch::Tpch;
 
 use self::marketing::Marketing;
@@ -128,6 +130,15 @@ impl GeneratorKind {
                     // The default tick behavior 1s. For tpch we want to disable ticking
                     // completely.
                     tick: Duration::from_micros(tick_micros.unwrap_or(0)),
+                }),
+                tick_micros,
+                as_of,
+                up_to,
+            },
+            LoadGenerator::Nexmark(config) => GeneratorKind::Simple {
+                generator: Box::new(Nexmark {
+                    config: config.clone(),
+                    as_of,
                 }),
                 tick_micros,
                 as_of,
