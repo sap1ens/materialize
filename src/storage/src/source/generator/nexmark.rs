@@ -18,7 +18,9 @@
 //!
 //! Because an event depends only on its id, batch `n` holds events
 //! `n * batch_size .. (n + 1) * batch_size` and can be generated without
-//! replaying earlier batches.
+//! replaying earlier batches. Every worker runs the generator and emits the
+//! events of each batch whose id is congruent to its index modulo the worker
+//! count.
 //!
 //! [Nexmark]: https://github.com/nexmark/nexmark
 
@@ -26,6 +28,7 @@ use std::cmp;
 use std::iter;
 
 use chrono::DateTime;
+use mz_ore::cast::CastFrom;
 use mz_ore::now::NowFn;
 use mz_repr::{Datum, Diff, Row};
 use mz_storage_types::sources::MzOffset;
@@ -147,6 +150,10 @@ pub struct Nexmark {
     pub config: NexmarkLoadGenerator,
     /// The source's `AS OF`. Batches up to it are all emitted at this offset.
     pub as_of: u64,
+    /// This generator emits the event ids `id` with
+    /// `id % worker_count == worker_index`.
+    pub worker_index: u64,
+    pub worker_count: u64,
 }
 
 // Note that this generator never issues retractions; if you change this,
@@ -164,6 +171,7 @@ impl Generator for Nexmark {
             max_events,
         } = self.config;
         let max_events = max_events.unwrap_or(u64::MAX);
+        let (worker_index, worker_count) = (self.worker_index, self.worker_count);
         // Batches at or below `as_of` are all emitted at offset `as_of`, so
         // none of them is durable until the resume offset passes `as_of`. Past
         // it, every batch below the resume offset is durable.
@@ -185,9 +193,14 @@ impl Generator for Nexmark {
                         )
                     })
                 })
-                .flat_map(|(batch, start, end)| {
+                .flat_map(move |(batch, start, end)| {
                     let offset = MzOffset::from(batch);
-                    (start..end)
+                    // The first id at or after `start` that belongs to this worker.
+                    let first = start.saturating_add(
+                        (worker_index + worker_count - start % worker_count) % worker_count,
+                    );
+                    (first..end)
+                        .step_by(usize::cast_from(worker_count))
                         .map(move |event_id| {
                             let (view, row) = generate_event(event_id);
                             (
@@ -474,9 +487,14 @@ mod tests {
         as_of: u64,
         resume_offset: u64,
     ) -> Vec<(LoadGeneratorOutput, Event<Option<MzOffset>, (Row, Diff)>)> {
-        Nexmark { config, as_of }
-            .by_seed(SYSTEM_TIME.clone(), None, MzOffset::from(resume_offset))
-            .collect()
+        Nexmark {
+            config,
+            as_of,
+            worker_index: 0,
+            worker_count: 1,
+        }
+        .by_seed(SYSTEM_TIME.clone(), None, MzOffset::from(resume_offset))
+        .collect()
     }
 
     #[mz_ore::test]
@@ -599,5 +617,41 @@ mod tests {
         // until the resume offset passes it.
         assert_eq!(events(config.clone(), 1, 1).len(), 13);
         assert_eq!(events(config, 1, 2).len(), 3);
+    }
+
+    #[mz_ore::test]
+    fn workers_split_each_batch() {
+        let config = NexmarkLoadGenerator {
+            batch_size: 7,
+            max_events: Some(30),
+        };
+        let messages = |worker_index, worker_count, resume_offset| {
+            let mut messages = Vec::new();
+            let generator = Nexmark {
+                config: config.clone(),
+                as_of: 0,
+                worker_index,
+                worker_count,
+            };
+            for (_, event) in
+                generator.by_seed(SYSTEM_TIME.clone(), None, MzOffset::from(resume_offset))
+            {
+                if let Event::Message(offset, (row, _)) = event {
+                    messages.push((offset, row));
+                }
+            }
+            messages
+        };
+        for resume_offset in [0, 2] {
+            let mut expected = messages(0, 1, resume_offset);
+            let mut combined: Vec<_> = (0..3)
+                .flat_map(|worker| messages(worker, 3, resume_offset))
+                .collect();
+            expected.sort();
+            combined.sort();
+            assert_eq!(combined, expected, "resume offset {resume_offset}");
+        }
+        assert_eq!(messages(0, 3, 0).len(), 10, "ids 0, 3, ..., 27");
+        assert_eq!(messages(2, 3, 0).len(), 10, "ids 2, 5, ..., 29");
     }
 }

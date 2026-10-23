@@ -67,18 +67,29 @@ enum GeneratorKind {
         tick_micros: Option<u64>,
         as_of: u64,
         up_to: u64,
+        /// Whether every worker runs `generator`. If false, only one worker
+        /// does.
+        all_workers: bool,
     },
     KeyValue(KeyValueLoadGenerator),
 }
 
 impl GeneratorKind {
-    fn new(g: &LoadGenerator, tick_micros: Option<u64>, as_of: u64, up_to: u64) -> Self {
+    fn new(
+        g: &LoadGenerator,
+        tick_micros: Option<u64>,
+        as_of: u64,
+        up_to: u64,
+        worker_id: usize,
+        worker_count: usize,
+    ) -> Self {
         match g {
             LoadGenerator::Auction => GeneratorKind::Simple {
                 generator: Box::new(Auction {}),
                 tick_micros,
                 as_of,
                 up_to,
+                all_workers: false,
             },
             LoadGenerator::Clock => GeneratorKind::Simple {
                 generator: Box::new(Clock {
@@ -93,6 +104,7 @@ impl GeneratorKind {
                 tick_micros,
                 as_of,
                 up_to,
+                all_workers: false,
             },
             LoadGenerator::Counter { max_cardinality } => GeneratorKind::Simple {
                 generator: Box::new(Counter {
@@ -101,18 +113,21 @@ impl GeneratorKind {
                 tick_micros,
                 as_of,
                 up_to,
+                all_workers: false,
             },
             LoadGenerator::Datums => GeneratorKind::Simple {
                 generator: Box::new(Datums {}),
                 tick_micros,
                 as_of,
                 up_to,
+                all_workers: false,
             },
             LoadGenerator::Marketing => GeneratorKind::Simple {
                 generator: Box::new(Marketing {}),
                 tick_micros,
                 as_of,
                 up_to,
+                all_workers: false,
             },
             LoadGenerator::Tpch {
                 count_supplier,
@@ -134,15 +149,19 @@ impl GeneratorKind {
                 tick_micros,
                 as_of,
                 up_to,
+                all_workers: false,
             },
             LoadGenerator::Nexmark(config) => GeneratorKind::Simple {
                 generator: Box::new(Nexmark {
                     config: config.clone(),
                     as_of,
+                    worker_index: u64::cast_from(worker_id),
+                    worker_count: u64::cast_from(worker_count),
                 }),
                 tick_micros,
                 as_of,
                 up_to,
+                all_workers: true,
             },
             LoadGenerator::KeyValue(kv) => GeneratorKind::KeyValue(kv.clone()),
         }
@@ -191,8 +210,10 @@ impl GeneratorKind {
                 as_of,
                 up_to,
                 generator,
+                all_workers,
             } => render_simple_generator(
                 generator,
+                all_workers,
                 tick_micros,
                 as_of.into(),
                 up_to.into(),
@@ -239,6 +260,8 @@ impl SourceRender for LoadGeneratorSourceConnection {
             self.tick_micros,
             self.as_of,
             self.up_to,
+            config.worker_id,
+            config.worker_count,
         );
         let (updates, progress, health, button) =
             generator_kind.render(scope, config, committed_uppers, start_signal);
@@ -256,6 +279,7 @@ impl SourceRender for LoadGeneratorSourceConnection {
 
 fn render_simple_generator<'scope>(
     generator: Box<dyn Generator>,
+    all_workers: bool,
     tick_micros: Option<u64>,
     as_of: MzOffset,
     up_to: MzOffset,
@@ -303,21 +327,26 @@ fn render_simple_generator<'scope>(
 
     let busy_signal = Arc::clone(&config.busy_signal);
     let source_resume_uppers = config.source_resume_uppers.clone();
-    let is_active_worker = config.responsible_for(());
+    // The responsible worker reports health and statistics, so they don't
+    // depend on how many workers generate data.
+    let is_responsible_worker = config.responsible_for(());
+    let is_active_worker = all_workers || is_responsible_worker;
     let source_statistics = config.statistics.clone();
     let button = builder.build(move |caps| {
         SignaledFuture::new(busy_signal, async move {
             let [mut cap, mut progress_cap, health_cap] = caps.try_into().unwrap();
 
             // We only need this until we reported ourselves as Running.
-            let mut health_cap = Some(health_cap);
+            let mut health_cap = is_responsible_worker.then_some(health_cap);
 
-            if !is_active_worker {
+            if !is_responsible_worker {
                 // Emit 0, to mark this worker as having started up correctly.
                 for stats in source_statistics.values() {
                     stats.set_offset_known(0);
                     stats.set_offset_committed(0);
                 }
+            }
+            if !is_active_worker {
                 return;
             }
 
@@ -357,7 +386,9 @@ fn render_simple_generator<'scope>(
             let mut committed_uppers = std::pin::pin!(committed_uppers);
 
             // Each export's `offset_committed`. If we are just starting up, report 0.
-            let mut offsets_committed: BTreeMap<_, _> = if resume_offset.offset == 0 {
+            let mut offsets_committed: BTreeMap<_, _> = if !is_responsible_worker {
+                BTreeMap::new()
+            } else if resume_offset.offset == 0 {
                 source_statistics.keys().map(|id| (*id, 0)).collect()
             } else {
                 BTreeMap::new()
@@ -451,6 +482,9 @@ fn render_simple_generator<'scope>(
                                     }
                                     Some(uppers) = committed_uppers.next() => {
                                         for (id, frontier) in uppers.exports {
+                                            if !is_responsible_worker {
+                                                continue;
+                                            }
                                             if let Some(offset) = frontier.into_option() {
                                                 // Offset N means we have committed N offsets (offsets are
                                                 // 0-indexed)
